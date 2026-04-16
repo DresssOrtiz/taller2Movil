@@ -1,11 +1,26 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
+
+// Lee la API key desde local.properties para evitar dejarla fija en el repositorio.
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+val googleMapsApiKey = localProperties.getProperty("MAPS_API_KEY", "")
 
 android {
     namespace = "com.example.taller2"
-    compileSdk = 35
+    // Maps Compose 8.2.2 exige compilar contra API 36 o superior.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.taller2"
@@ -15,6 +30,15 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Se inyecta en el Manifest para que luego solo haga falta pegar la key real.
+        manifestPlaceholders["googleMapsApiKey"] = googleMapsApiKey
+        // Permite validar en runtime si la key quedo vacia en la configuracion local.
+        buildConfigField(
+            "boolean",
+            "HAS_GOOGLE_MAPS_API_KEY",
+            googleMapsApiKey.isNotBlank().toString()
+        )
     }
 
     buildTypes {
@@ -30,14 +54,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_11)
+        }
     }
     buildFeatures {
+        buildConfig = true
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
 }
 
@@ -50,6 +74,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.google.maps.compose)
+    implementation(libs.google.play.services.location)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
