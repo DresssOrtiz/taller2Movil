@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
-import com.example.taller2.ui.map.MapRouteScreen
+import com.example.taller2.ui.camera.CameraScreen
 import com.example.taller2.ui.theme.Taller2Theme
 
 class MainActivity : ComponentActivity() {
@@ -17,9 +17,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Taller2Theme {
-                // La actividad ahora arranca en la pantalla base del mapa para esta rama.
+                // En la rama feature/camera-photos la actividad muestra la pantalla de cámara.
+                // feature/integration-map-camera combinará esta pantalla con el mapa.
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MapRouteScreen(
+                    CameraScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding)
