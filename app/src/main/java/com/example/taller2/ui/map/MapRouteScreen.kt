@@ -41,6 +41,7 @@ import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 
 @Composable
@@ -132,6 +133,18 @@ fun MapRouteScreen(
             cameraPositionState = cameraPositionState,
             properties = MapProperties()
         ) {
+            // La ruta se dibuja dentro de nuestra app conectando las fotos geolocalizadas
+            // en el orden en que fueron guardadas en el estado compartido.
+            if (geoTaggedPhotos.size >= 2) {
+                Polyline(
+                    points = geoTaggedPhotos
+                        .asReversed()
+                        .map { LatLng(it.lat, it.lng) },
+                    color = androidx.compose.ui.graphics.Color(0xFF123C8B),
+                    width = 16f
+                )
+            }
+
             // Estos marcadores salen de fotos geolocalizadas tomadas con la camara.
             geoTaggedPhotos.forEach { geoTaggedPhoto ->
                 Marker(
