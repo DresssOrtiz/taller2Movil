@@ -46,7 +46,8 @@ import com.google.maps.android.compose.rememberCameraPositionState
 @Composable
 fun MapRouteScreen(
     modifier: Modifier = Modifier,
-    geoTaggedPhotos: List<GeoTaggedPhoto> = emptyList()
+    geoTaggedPhotos: List<GeoTaggedPhoto> = emptyList(),
+    onClearRoute: () -> Unit = {}
 ) {
     val context = LocalContext.current
     // Camara inicial fija mientras aun no llega una ubicacion real.
@@ -222,9 +223,11 @@ fun MapRouteScreen(
                 Spacer(modifier = Modifier.width(12.dp))
                 OutlinedButton(
                     onClick = {
-                        // Se mantiene la logica local del estado del recorrido.
+                        // Este borrado solo afecta el estado de la app.
+                        // Al vaciar geoTaggedPhotos desaparecen automaticamente los marcadores del mapa.
                         isRouteActive = false
                         routeStatus = "Recorrido inactivo."
+                        onClearRoute()
                     }
                 ) {
                     Text("Borrar recorrido")

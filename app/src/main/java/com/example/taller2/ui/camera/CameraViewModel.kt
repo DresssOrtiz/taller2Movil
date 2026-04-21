@@ -118,6 +118,15 @@ class CameraViewModel : ViewModel() {
         _fotosUri.value = emptyList()
     }
 
+    /**
+     * Limpia solo el estado temporal de la app para un nuevo recorrido.
+     * No elimina archivos de la galeria; solo vacia miniaturas y fotos geolocalizadas en memoria.
+     */
+    fun limpiarRecorridoActual() {
+        _fotosUri.value = emptyList()
+        _geoTaggedPhotos.value = emptyList()
+    }
+
     private fun construirFotoGeolocalizada(
         context: Context,
         photoId: String,

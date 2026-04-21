@@ -35,7 +35,11 @@ class MainActivity : ComponentActivity() {
                     ) {
                         MapRouteScreen(
                             modifier = Modifier.weight(1f),
-                            geoTaggedPhotos = geoTaggedPhotos.value
+                            geoTaggedPhotos = geoTaggedPhotos.value,
+                            onClearRoute = {
+                                // El borrado solo limpia el estado compartido de la app.
+                                cameraViewModel.limpiarRecorridoActual()
+                            }
                         )
                         CameraScreen(
                             modifier = Modifier.weight(1f),
