@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -32,9 +31,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.taller2.BuildConfig
+import com.example.taller2.model.GeoTaggedPhoto
 import com.google.android.gms.location.CurrentLocationRequest
-import com.google.android.gms.location.Priority
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
@@ -42,25 +42,25 @@ import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
-import java.util.UUID
 
 @Composable
-fun MapRouteScreen(modifier: Modifier = Modifier) {
+fun MapRouteScreen(
+    modifier: Modifier = Modifier,
+    geoTaggedPhotos: List<GeoTaggedPhoto> = emptyList()
+) {
     val context = LocalContext.current
-    // Camara inicial fija mientras la rama de mapa todavia no usa la ubicacion real.
+    // Camara inicial fija mientras aun no llega una ubicacion real.
     val initialLocation = LatLng(4.7110, -74.0721)
     val fusedLocationClient = remember(context) {
         LocationServices.getFusedLocationProviderClient(context)
     }
     val cameraPositionState = rememberCameraPositionState {
-        // Se define la posicion inicial sin invocar CameraUpdateFactory antes de que el mapa exista.
         position = CameraPosition.fromLatLngZoom(initialLocation, 13f)
     }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var locationStatus by remember { mutableStateOf("Esperando ubicacion actual.") }
     var isRouteActive by remember { mutableStateOf(false) }
     var routeStatus by remember { mutableStateOf("Recorrido inactivo.") }
-    var routeMarkers by remember { mutableStateOf(emptyList<RouteMarker>()) }
 
     LaunchedEffect(Unit) {
         if (!BuildConfig.HAS_GOOGLE_MAPS_API_KEY) {
@@ -87,7 +87,6 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
 
         locationStatus = "Solicitando una ubicacion actualizada..."
 
-        // Primero intentamos una ubicacion fresca para evitar quedarnos con el cache viejo del emulador.
         val currentLocationRequest = CurrentLocationRequest.Builder()
             .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
             .setMaxUpdateAgeMillis(0)
@@ -96,13 +95,11 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
         fusedLocationClient.getCurrentLocation(currentLocationRequest, null)
             .addOnSuccessListener { location ->
                 if (location != null) {
-                    val userLatLng = LatLng(location.latitude, location.longitude)
-                    currentLocation = userLatLng
+                    currentLocation = LatLng(location.latitude, location.longitude)
                     locationStatus = "Mapa centrado en una ubicacion actualizada."
                     return@addOnSuccessListener
                 }
 
-                // Si no llega una ubicacion fresca, usamos el ultimo valor conocido como respaldo.
                 fusedLocationClient.lastLocation
                     .addOnSuccessListener { lastKnownLocation ->
                         if (lastKnownLocation == null) {
@@ -111,11 +108,10 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
                             return@addOnSuccessListener
                         }
 
-                        val userLatLng = LatLng(
+                        currentLocation = LatLng(
                             lastKnownLocation.latitude,
                             lastKnownLocation.longitude
                         )
-                        currentLocation = userLatLng
                         locationStatus = "Se uso la ultima ubicacion conocida como respaldo."
                     }
                     .addOnFailureListener { error ->
@@ -131,7 +127,7 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
 
     LaunchedEffect(currentLocation) {
         val userLatLng = currentLocation ?: return@LaunchedEffect
-        // Cuando ya tenemos una ubicacion valida, recentramos la camara del mapa.
+        // La camara se recentra solo con la ubicacion actual del usuario.
         cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 16f)
     }
 
@@ -144,18 +140,21 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
-                // Se dejan solo propiedades basicas para esta pantalla inicial.
                 properties = MapProperties()
             ) {
-                routeMarkers.forEach { routeMarker ->
-                    // Estos son los marcadores del recorrido, separados de la ubicacion actual.
+                geoTaggedPhotos.forEach { geoTaggedPhoto ->
+                    // Estos marcadores vienen de fotos geolocalizadas tomadas con la camara.
+                    // Usan lat/lng y titulo de GeoTaggedPhoto, separados del marcador del usuario.
                     Marker(
-                        state = MarkerState(position = LatLng(routeMarker.lat, routeMarker.lng)),
-                        title = routeMarker.title
+                        state = MarkerState(
+                            position = LatLng(geoTaggedPhoto.lat, geoTaggedPhoto.lng)
+                        ),
+                        title = geoTaggedPhoto.title
                     )
                 }
+
                 currentLocation?.let { userLatLng ->
-                    // Referencia visual simple para la posicion actual del usuario.
+                    // El marcador de ubicacion actual del usuario sigue independiente.
                     Marker(
                         state = MarkerState(position = userLatLng),
                         title = "Mi ubicacion actual"
@@ -164,7 +163,6 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // Zona reservada para botones y estado del recorrido en los siguientes pasos.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -187,7 +185,7 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
                 )
             }
             Text(
-                text = "Aqui iremos agregando botones y estado en los siguientes pasos.",
+                text = "Los marcadores del recorrido ahora salen de fotos geolocalizadas.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -211,10 +209,10 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
             ) {
                 Button(
                     onClick = {
-                        // Marca el recorrido como activo para los siguientes pasos del taller.
+                        // Ya no se crean mocks: al activar el recorrido,
+                        // el mapa esperara marcadores reales desde geoTaggedPhotos.
                         isRouteActive = true
-                        routeMarkers = createMockRouteMarkers(currentLocation)
-                        routeStatus = "Recorrido activo. Marcadores mock agregados para pruebas."
+                        routeStatus = "Recorrido activo. Esperando fotos geolocalizadas."
                     },
                     enabled = !isRouteActive,
                     colors = ButtonDefaults.buttonColors()
@@ -224,40 +222,19 @@ fun MapRouteScreen(modifier: Modifier = Modifier) {
                 Spacer(modifier = Modifier.width(12.dp))
                 OutlinedButton(
                     onClick = {
-                        // Reinicia el estado temporal del recorrido sin tocar aun marcadores reales.
+                        // Se mantiene la logica local del estado del recorrido.
                         isRouteActive = false
-                        routeMarkers = emptyList()
-                        routeStatus = "Recorrido inactivo. Marcadores del recorrido eliminados."
+                        routeStatus = "Recorrido inactivo."
                     }
                 ) {
                     Text("Borrar recorrido")
                 }
             }
             Text(
-                text = "Marcadores del recorrido: ${routeMarkers.size}",
+                text = "Marcadores del recorrido: ${geoTaggedPhotos.size}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
-}
-
-private fun createMockRouteMarkers(currentLocation: LatLng?): List<RouteMarker> {
-    // Se generan puntos de prueba cerca de la ubicacion actual para dejar lista la futura integracion.
-    val baseLocation = currentLocation ?: LatLng(4.7110, -74.0721)
-
-    return listOf(
-        RouteMarker(
-            id = UUID.randomUUID().toString(),
-            title = "Punto de prueba 1",
-            lat = baseLocation.latitude + 0.0015,
-            lng = baseLocation.longitude + 0.0015
-        ),
-        RouteMarker(
-            id = UUID.randomUUID().toString(),
-            title = "Punto de prueba 2",
-            lat = baseLocation.latitude - 0.0012,
-            lng = baseLocation.longitude + 0.0010
-        )
-    )
 }

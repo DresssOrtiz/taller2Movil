@@ -75,6 +75,7 @@ fun CameraScreen(
 
     val lenteActivo by viewModel.lenteActivo.collectAsStateWithLifecycle()
     val fotosUri by viewModel.fotosUri.collectAsStateWithLifecycle()
+    val geoTaggedPhotos by viewModel.geoTaggedPhotos.collectAsStateWithLifecycle()
 
     // Se recrean los casos de uso cuando cambia el lente para forzar el rebind.
     val preview = remember(lenteActivo) { Preview.Builder().build() }
@@ -174,6 +175,13 @@ fun CameraScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     ListaMiniaturas(fotosUri = fotosUri)
                 }
+
+                Text(
+                    text = "Fotos geolocalizadas listas para integrar: ${geoTaggedPhotos.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(top = 12.dp)
+                )
             }
         }
     }

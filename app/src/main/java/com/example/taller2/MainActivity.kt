@@ -4,11 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.taller2.ui.camera.CameraScreen
+import com.example.taller2.ui.camera.CameraViewModel
+import com.example.taller2.ui.map.MapRouteScreen
 import com.example.taller2.ui.theme.Taller2Theme
 
 class MainActivity : ComponentActivity() {
@@ -17,14 +22,26 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Taller2Theme {
-                // En la rama feature/camera-photos la actividad muestra la pantalla de cámara.
-                // feature/integration-map-camera combinará esta pantalla con el mapa.
+                // La opcion mas simple para esta rama es compartir un mismo ViewModel
+                // entre camara y mapa para que ambos lean las mismas fotos geolocalizadas.
+                val cameraViewModel: CameraViewModel = viewModel()
+                val geoTaggedPhotos = cameraViewModel.geoTaggedPhotos.collectAsStateWithLifecycle()
+
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    CameraScreen(
+                    Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding)
-                    )
+                    ) {
+                        MapRouteScreen(
+                            modifier = Modifier.weight(1f),
+                            geoTaggedPhotos = geoTaggedPhotos.value
+                        )
+                        CameraScreen(
+                            modifier = Modifier.weight(1f),
+                            viewModel = cameraViewModel
+                        )
+                    }
                 }
             }
         }
