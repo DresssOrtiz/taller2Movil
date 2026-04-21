@@ -3,21 +3,21 @@ package com.example.taller2.ui.map
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +41,7 @@ import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 
 @Composable
@@ -50,7 +51,6 @@ fun MapRouteScreen(
     onClearRoute: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    // Camara inicial fija mientras aun no llega una ubicacion real.
     val initialLocation = LatLng(4.7110, -74.0721)
     val fusedLocationClient = remember(context) {
         LocationServices.getFusedLocationProviderClient(context)
@@ -61,7 +61,6 @@ fun MapRouteScreen(
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var locationStatus by remember { mutableStateOf("Esperando ubicacion actual.") }
     var isRouteActive by remember { mutableStateOf(false) }
-    var routeStatus by remember { mutableStateOf("Recorrido inactivo.") }
 
     LaunchedEffect(Unit) {
         if (!BuildConfig.HAS_GOOGLE_MAPS_API_KEY) {
@@ -81,12 +80,10 @@ fun MapRouteScreen(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasFineLocation && !hasCoarseLocation) {
-            locationStatus = "Sin permisos de ubicacion. Se mantiene la camara inicial."
+            locationStatus = "Sin permisos de ubicacion."
             Log.w("MapRouteScreen", "No hay permisos de ubicacion para leer la posicion actual.")
             return@LaunchedEffect
         }
-
-        locationStatus = "Solicitando una ubicacion actualizada..."
 
         val currentLocationRequest = CurrentLocationRequest.Builder()
             .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
@@ -97,15 +94,14 @@ fun MapRouteScreen(
             .addOnSuccessListener { location ->
                 if (location != null) {
                     currentLocation = LatLng(location.latitude, location.longitude)
-                    locationStatus = "Mapa centrado en una ubicacion actualizada."
+                    locationStatus = "Ubicacion actualizada."
                     return@addOnSuccessListener
                 }
 
                 fusedLocationClient.lastLocation
                     .addOnSuccessListener { lastKnownLocation ->
                         if (lastKnownLocation == null) {
-                            locationStatus =
-                                "Ubicacion no disponible todavia. Se mantiene la camara inicial."
+                            locationStatus = "Ubicacion no disponible."
                             return@addOnSuccessListener
                         }
 
@@ -113,131 +109,141 @@ fun MapRouteScreen(
                             lastKnownLocation.latitude,
                             lastKnownLocation.longitude
                         )
-                        locationStatus = "Se uso la ultima ubicacion conocida como respaldo."
+                        locationStatus = "Usando ultima ubicacion conocida."
                     }
                     .addOnFailureListener { error ->
-                        locationStatus = "No fue posible obtener la ubicacion actual."
+                        locationStatus = "No fue posible obtener ubicacion."
                         Log.e("MapRouteScreen", "Error obteniendo lastLocation de respaldo.", error)
                     }
             }
             .addOnFailureListener { error ->
-                locationStatus = "No fue posible obtener una ubicacion actualizada."
+                locationStatus = "No fue posible obtener ubicacion."
                 Log.e("MapRouteScreen", "Error obteniendo una ubicacion fresca.", error)
             }
     }
 
     LaunchedEffect(currentLocation) {
         val userLatLng = currentLocation ?: return@LaunchedEffect
-        // La camara se recentra solo con la ubicacion actual del usuario.
         cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 16f)
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+    Box(modifier = modifier.fillMaxSize()) {
+        GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraPositionState,
+            properties = MapProperties()
         ) {
-            GoogleMap(
-                modifier = Modifier.fillMaxSize(),
-                cameraPositionState = cameraPositionState,
-                properties = MapProperties()
-            ) {
-                geoTaggedPhotos.forEach { geoTaggedPhoto ->
-                    // Estos marcadores vienen de fotos geolocalizadas tomadas con la camara.
-                    // Usan lat/lng y titulo de GeoTaggedPhoto, separados del marcador del usuario.
-                    Marker(
-                        state = MarkerState(
-                            position = LatLng(geoTaggedPhoto.lat, geoTaggedPhoto.lng)
-                        ),
-                        title = geoTaggedPhoto.title
-                    )
-                }
+            // La ruta se dibuja dentro de nuestra app conectando las fotos geolocalizadas
+            // en el orden en que fueron guardadas en el estado compartido.
+            if (geoTaggedPhotos.size >= 2) {
+                Polyline(
+                    points = geoTaggedPhotos
+                        .asReversed()
+                        .map { LatLng(it.lat, it.lng) },
+                    color = androidx.compose.ui.graphics.Color(0xFF123C8B),
+                    width = 16f
+                )
+            }
 
-                currentLocation?.let { userLatLng ->
-                    // El marcador de ubicacion actual del usuario sigue independiente.
-                    Marker(
-                        state = MarkerState(position = userLatLng),
-                        title = "Mi ubicacion actual"
-                    )
-                }
+            // Estos marcadores salen de fotos geolocalizadas tomadas con la camara.
+            geoTaggedPhotos.forEach { geoTaggedPhoto ->
+                Marker(
+                    state = MarkerState(position = LatLng(geoTaggedPhoto.lat, geoTaggedPhoto.lng)),
+                    title = geoTaggedPhoto.title
+                )
+            }
+
+            // El marcador del usuario se mantiene separado de los marcadores del recorrido.
+            currentLocation?.let { userLatLng ->
+                Marker(
+                    state = MarkerState(position = userLatLng),
+                    title = "Mi ubicacion actual"
+                )
+            }
+        }
+
+        // Controles flotantes sobre el mapa para acercarse a la referencia visual del taller.
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SmallFloatingActionButton(
+                onClick = { isRouteActive = true },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Layers,
+                    contentDescription = "Iniciar recorrido"
+                )
+            }
+
+            FloatingActionButton(
+                onClick = {
+                    // Este borrado solo limpia el estado de la app; no elimina fotos de la galeria.
+                    isRouteActive = false
+                    onClearRoute()
+                },
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Stop,
+                    contentDescription = "Borrar recorrido"
+                )
             }
         }
 
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 180.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.Start
+                .align(Alignment.BottomStart)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "Panel del recorrido",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (!BuildConfig.HAS_GOOGLE_MAPS_API_KEY) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                tonalElevation = 4.dp
+            ) {
                 Text(
-                    text = "Falta configurar MAPS_API_KEY en local.properties.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
+                    text = if (isRouteActive) {
+                        "Recorrido activo"
+                    } else {
+                        "Recorrido inactivo"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
-            Text(
-                text = "Los marcadores del recorrido ahora salen de fotos geolocalizadas.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = routeStatus,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isRouteActive) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-            Text(
-                text = locationStatus,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                tonalElevation = 4.dp
             ) {
-                Button(
-                    onClick = {
-                        // Ya no se crean mocks: al activar el recorrido,
-                        // el mapa esperara marcadores reales desde geoTaggedPhotos.
-                        isRouteActive = true
-                        routeStatus = "Recorrido activo. Esperando fotos geolocalizadas."
-                    },
-                    enabled = !isRouteActive,
-                    colors = ButtonDefaults.buttonColors()
-                ) {
-                    Text("Iniciar recorrido")
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                OutlinedButton(
-                    onClick = {
-                        // Este borrado solo afecta el estado de la app.
-                        // Al vaciar geoTaggedPhotos desaparecen automaticamente los marcadores del mapa.
-                        isRouteActive = false
-                        routeStatus = "Recorrido inactivo."
-                        onClearRoute()
-                    }
-                ) {
-                    Text("Borrar recorrido")
-                }
+                Text(
+                    text = "Marcadores: ${geoTaggedPhotos.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
             }
-            Text(
-                text = "Marcadores del recorrido: ${geoTaggedPhotos.size}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                tonalElevation = 4.dp
+            ) {
+                Text(
+                    text = locationStatus,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
         }
     }
 }
