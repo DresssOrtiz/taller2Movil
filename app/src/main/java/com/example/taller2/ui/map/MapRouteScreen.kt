@@ -2,6 +2,9 @@ package com.example.taller2.ui.map
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +38,8 @@ import com.example.taller2.model.GeoTaggedPhoto
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.maps.model.BitmapDescriptor
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
@@ -43,6 +48,8 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MapRouteScreen(
@@ -61,6 +68,10 @@ fun MapRouteScreen(
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var locationStatus by remember { mutableStateOf("Esperando ubicacion actual.") }
     var isRouteActive by remember { mutableStateOf(false) }
+
+    // Mapa de id de foto -> icono de marcador personalizado con la miniatura.
+    // Se recalcula cada vez que cambia la lista de fotos geolocalizadas.
+    var iconosMarcadores by remember { mutableStateOf<Map<String, BitmapDescriptor>>(emptyMap()) }
 
     LaunchedEffect(Unit) {
         if (!BuildConfig.HAS_GOOGLE_MAPS_API_KEY) {
@@ -127,14 +138,42 @@ fun MapRouteScreen(
         cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 16f)
     }
 
+    // Cargar las miniaturas de cada foto geolocalizadas en un hilo de IO y
+    // convertirlas en BitmapDescriptor para personalizar el icono del marcador.
+    LaunchedEffect(geoTaggedPhotos) {
+        val nuevosIconos = mutableMapOf<String, BitmapDescriptor>()
+        for (foto in geoTaggedPhotos) {
+            // Omitir fotos que ya tienen su icono cargado para evitar trabajo redundante.
+            if (iconosMarcadores.containsKey(foto.id)) {
+                nuevosIconos[foto.id] = iconosMarcadores.getValue(foto.id)
+                continue
+            }
+            val bitmap = withContext(Dispatchers.IO) {
+                runCatching {
+                    val uri = Uri.parse(foto.photoUri)
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                }.getOrNull()
+            }
+            if (bitmap != null) {
+                // Escalar a 120x120 px: visible en el mapa sin sobrecargar la memoria.
+                val miniatura = Bitmap.createScaledBitmap(bitmap, 120, 120, true)
+                bitmap.recycle()
+                nuevosIconos[foto.id] = BitmapDescriptorFactory.fromBitmap(miniatura)
+            }
+        }
+        iconosMarcadores = nuevosIconos
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties()
         ) {
-            // La ruta se dibuja dentro de nuestra app conectando las fotos geolocalizadas
-            // en el orden en que fueron guardadas en el estado compartido.
+            // La ruta se dibuja conectando las fotos geolocalizadas en el orden
+            // en que fueron guardadas en el estado compartido.
             if (geoTaggedPhotos.size >= 2) {
                 Polyline(
                     points = geoTaggedPhotos
@@ -145,11 +184,14 @@ fun MapRouteScreen(
                 )
             }
 
-            // Estos marcadores salen de fotos geolocalizadas tomadas con la camara.
+            // Marcadores de fotos geolocalizadas con miniatura de la foto como icono.
             geoTaggedPhotos.forEach { geoTaggedPhoto ->
                 Marker(
                     state = MarkerState(position = LatLng(geoTaggedPhoto.lat, geoTaggedPhoto.lng)),
-                    title = geoTaggedPhoto.title
+                    title = geoTaggedPhoto.title,
+                    // Si la miniatura ya cargo se usa como icono; si no, se muestra el marcador
+                    // predeterminado mientras termina la carga asincrona.
+                    icon = iconosMarcadores[geoTaggedPhoto.id]
                 )
             }
 
@@ -162,7 +204,7 @@ fun MapRouteScreen(
             }
         }
 
-        // Controles flotantes sobre el mapa para acercarse a la referencia visual del taller.
+        // Controles flotantes sobre el mapa.
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
