@@ -6,22 +6,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,11 +58,9 @@ fun MapRouteScreen(
         position = CameraPosition.fromLatLngZoom(initialLocation, 13f)
     }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
-    var locationStatus by remember { mutableStateOf("Esperando ubicacion actual.") }
-    var isRouteActive by remember { mutableStateOf(false) }
+    var routePoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
 
     // Mapa de id de foto -> icono de marcador personalizado con la miniatura.
-    // Se recalcula cada vez que cambia la lista de fotos geolocalizadas.
     var iconosMarcadores by remember { mutableStateOf<Map<String, BitmapDescriptor>>(emptyMap()) }
 
     LaunchedEffect(Unit) {
@@ -91,8 +81,6 @@ fun MapRouteScreen(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasFineLocation && !hasCoarseLocation) {
-            locationStatus = "Sin permisos de ubicacion."
-            Log.w("MapRouteScreen", "No hay permisos de ubicacion para leer la posicion actual.")
             return@LaunchedEffect
         }
 
@@ -105,31 +93,18 @@ fun MapRouteScreen(
             .addOnSuccessListener { location ->
                 if (location != null) {
                     currentLocation = LatLng(location.latitude, location.longitude)
-                    locationStatus = "Ubicacion actualizada."
                     return@addOnSuccessListener
                 }
 
                 fusedLocationClient.lastLocation
                     .addOnSuccessListener { lastKnownLocation ->
-                        if (lastKnownLocation == null) {
-                            locationStatus = "Ubicacion no disponible."
-                            return@addOnSuccessListener
-                        }
+                        if (lastKnownLocation == null) return@addOnSuccessListener
 
                         currentLocation = LatLng(
                             lastKnownLocation.latitude,
                             lastKnownLocation.longitude
                         )
-                        locationStatus = "Usando ultima ubicacion conocida."
                     }
-                    .addOnFailureListener { error ->
-                        locationStatus = "No fue posible obtener ubicacion."
-                        Log.e("MapRouteScreen", "Error obteniendo lastLocation de respaldo.", error)
-                    }
-            }
-            .addOnFailureListener { error ->
-                locationStatus = "No fue posible obtener ubicacion."
-                Log.e("MapRouteScreen", "Error obteniendo una ubicacion fresca.", error)
             }
     }
 
@@ -138,12 +113,10 @@ fun MapRouteScreen(
         cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 16f)
     }
 
-    // Cargar las miniaturas de cada foto geolocalizadas en un hilo de IO y
-    // convertirlas en BitmapDescriptor para personalizar el icono del marcador.
+    // Cargar miniaturas para usar la foto como icono del marcador.
     LaunchedEffect(geoTaggedPhotos) {
         val nuevosIconos = mutableMapOf<String, BitmapDescriptor>()
         for (foto in geoTaggedPhotos) {
-            // Omitir fotos que ya tienen su icono cargado para evitar trabajo redundante.
             if (iconosMarcadores.containsKey(foto.id)) {
                 nuevosIconos[foto.id] = iconosMarcadores.getValue(foto.id)
                 continue
@@ -157,7 +130,6 @@ fun MapRouteScreen(
                 }.getOrNull()
             }
             if (bitmap != null) {
-                // Escalar a 120x120 px: visible en el mapa sin sobrecargar la memoria.
                 val miniatura = Bitmap.createScaledBitmap(bitmap, 120, 120, true)
                 bitmap.recycle()
                 nuevosIconos[foto.id] = BitmapDescriptorFactory.fromBitmap(miniatura)
@@ -166,36 +138,33 @@ fun MapRouteScreen(
         iconosMarcadores = nuevosIconos
     }
 
+    // Cuando cambian las fotos, recalculamos la ruta real por calles.
+    LaunchedEffect(geoTaggedPhotos) {
+        routePoints = DirectionsRouteService.fetchRoutePoints(geoTaggedPhotos)
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties()
         ) {
-            // La ruta se dibuja conectando las fotos geolocalizadas en el orden
-            // en que fueron guardadas en el estado compartido.
-            if (geoTaggedPhotos.size >= 2) {
+            if (routePoints.isNotEmpty()) {
                 Polyline(
-                    points = geoTaggedPhotos
-                        .asReversed()
-                        .map { LatLng(it.lat, it.lng) },
+                    points = routePoints,
                     color = androidx.compose.ui.graphics.Color(0xFF123C8B),
                     width = 16f
                 )
             }
 
-            // Marcadores de fotos geolocalizadas con miniatura de la foto como icono.
             geoTaggedPhotos.forEach { geoTaggedPhoto ->
                 Marker(
                     state = MarkerState(position = LatLng(geoTaggedPhoto.lat, geoTaggedPhoto.lng)),
                     title = geoTaggedPhoto.title,
-                    // Si la miniatura ya cargo se usa como icono; si no, se muestra el marcador
-                    // predeterminado mientras termina la carga asincrona.
                     icon = iconosMarcadores[geoTaggedPhoto.id]
                 )
             }
 
-            // El marcador del usuario se mantiene separado de los marcadores del recorrido.
             currentLocation?.let { userLatLng ->
                 Marker(
                     state = MarkerState(position = userLatLng),
@@ -204,88 +173,18 @@ fun MapRouteScreen(
             }
         }
 
-        // Controles flotantes sobre el mapa.
-        Row(
+        FloatingActionButton(
+            onClick = { onClearRoute() },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 16.dp, end = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
         ) {
-            SmallFloatingActionButton(
-                onClick = { isRouteActive = true },
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Layers,
-                    contentDescription = "Iniciar recorrido"
-                )
-            }
-
-            FloatingActionButton(
-                onClick = {
-                    // Este borrado solo limpia el estado de la app; no elimina fotos de la galeria.
-                    isRouteActive = false
-                    onClearRoute()
-                },
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Stop,
-                    contentDescription = "Borrar recorrido"
-                )
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                tonalElevation = 4.dp
-            ) {
-                Text(
-                    text = if (isRouteActive) {
-                        "Recorrido activo"
-                    } else {
-                        "Recorrido inactivo"
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                tonalElevation = 4.dp
-            ) {
-                Text(
-                    text = "Marcadores: ${geoTaggedPhotos.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                tonalElevation = 4.dp
-            ) {
-                Text(
-                    text = locationStatus,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
+            Icon(
+                imageVector = Icons.Filled.Stop,
+                contentDescription = "Borrar recorrido"
+            )
         }
     }
 }

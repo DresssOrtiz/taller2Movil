@@ -16,6 +16,7 @@ val localProperties = Properties().apply {
 }
 
 val googleMapsApiKey = localProperties.getProperty("MAPS_API_KEY", "")
+val googleDirectionsApiKey = localProperties.getProperty("DIRECTIONS_API_KEY", googleMapsApiKey)
 
 android {
     namespace = "com.example.taller2"
@@ -38,6 +39,11 @@ android {
             "boolean",
             "HAS_GOOGLE_MAPS_API_KEY",
             googleMapsApiKey.isNotBlank().toString()
+        )
+        buildConfigField(
+            "String",
+            "DIRECTIONS_API_KEY",
+            "\"$googleDirectionsApiKey\""
         )
     }
 
